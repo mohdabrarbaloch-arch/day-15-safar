@@ -13,6 +13,7 @@ dependencies = [
     "sqlalchemy>=2.0,<2.1",
     "pydantic>=2.10,<3",
     "pydantic-settings>=2.6,<3",
+    "email-validator>=2.0,<3",
     "python-jose[cryptography]>=3.3,<4",
     "passlib[bcrypt]>=1.7,<2",
     "bcrypt>=4.0,<4.1",
@@ -34,7 +35,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["app", "app.routers", "app.core", "sim"]
+packages = ["app", "app.routers", "sim"]
 
 [tool.ruff]
 line-length = 100
