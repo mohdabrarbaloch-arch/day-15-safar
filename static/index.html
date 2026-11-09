@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="description" content="Safar - simulate an autonomous vehicle and read its safety envelope: time to collision, lane deviation, acceleration and jerk, each traceable to the timestep where it peaked." />
+<meta name="theme-color" content="#0b1020" />
+<title>Safar - Autonomous Vehicle Simulation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
+          <path d="M4 22c6-1 8-14 14-14 4 0 6 3 6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          <circle cx="24" cy="14" r="3.2" fill="currentColor"/>
+          <circle cx="4" cy="22" r="2.2" fill="currentColor" opacity=".55"/>
+        </svg>
+      </span>
+      <div class="brand__text">
+        <strong>Safar</strong>
+        <span> - autonomous vehicle simulation</span>
+      </div>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab is-active" role="tab" aria-selected="true" data-view="simulate">Simulate</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="scenarios">Scenarios</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="train">Train agent</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="history">History</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="about">About</button>
+    </nav>
+
+    <div class="topbar__actions">
+      <span class="pill" id="user-pill" hidden></span>
+      <button class="btn btn--ghost" id="auth-btn">Sign in</button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!--  SIMULATE  -->
+  <section class="view is-active" id="view-simulate" role="tabpanel">
+    <div class="layout">
+      <aside class="panel panel--controls">
+        <h2 class="panel__title">Run a simulation</h2>
+
+        <label class="field">
+          <span class="field__label">Scenario</span>
+          <select id="scenario-select" class="input"></select>
+        </label>
+
+        <p class="hint" id="scenario-desc"></p>
+
+        <label class="field">
+          <span class="field__label">Driving policy</span>
+          <select id="agent-select" class="input">
+            <option value="pursuit">Pure pursuit (baseline)</option>
+            <option value="qlearning">Q-learning (trained)</option>
+          </select>
+        </label>
+
+        <label class="field" id="agent-picker" hidden>
+          <span class="field__label">Trained agent</span>
+          <select id="trained-agent-select" class="input"></select>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Random seed</span>
+          <input id="seed-input" class="input" type="number" min="0" max="2147483647" value="1" />
+        </label>
+
+        <button class="btn btn--primary btn--block" id="run-btn">Run simulation</button>
+        <p class="hint hint--tight">Runs are deterministic: the same seed and scenario always produce the same frames.</p>
+
+        <div class="divider"></div>
+
+        <h3 class="panel__subtitle">Playback</h3>
+        <div class="playback">
+          <button class="btn btn--icon" id="play-btn" aria-label="Play or pause"></button>
+          <input type="range" id="scrub" class="scrub" min="0" max="0" value="0" aria-label="Scrub timeline" />
+          <span class="mono" id="time-label">0.00s</span>
+        </div>
+        <label class="field field--inline">
+          <input type="checkbox" id="trail-toggle" checked />
+          <span>Show travelled path</span>
+        </label>
+      </aside>
+
+      <div class="stage">
+        <div class="canvas-wrap">
+          <canvas id="sim-canvas" width="1200" height="700" aria-label="Top-down simulation view"></canvas>
+          <div class="canvas-badge" id="canvas-badge">No run yet</div>
+        </div>
+
+        <div class="metrics" id="metrics">
+          <div class="metric metric--hero">
+            <span class="metric__label">Safety score</span>
+            <span class="metric__value" id="m-score">-</span>
+            <span class="metric__note" id="m-score-note">run a simulation</span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">Min time to collision</span>
+            <span class="metric__value" id="m-ttc">-</span>
+            <span class="metric__note" id="m-ttc-note"></span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">Min gap</span>
+            <span class="metric__value" id="m-gap">-</span>
+            <span class="metric__note" id="m-gap-note"></span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">Max lateral error</span>
+            <span class="metric__value" id="m-lat">-</span>
+            <span class="metric__note" id="m-lat-note"></span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">Max braking</span>
+            <span class="metric__value" id="m-brake">-</span>
+            <span class="metric__note" id="m-brake-note"></span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">Max jerk</span>
+            <span class="metric__value" id="m-jerk">-</span>
+            <span class="metric__note" id="m-jerk-note"></span>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-card__head">
+            <h3>Speed &amp; lateral error over time</h3>
+            <span class="hint hint--tight" id="chart-legend">- speed (m/s) - - lateral error (m)</span>
+          </div>
+          <canvas id="chart-canvas" width="1200" height="260" aria-label="Speed and lateral error chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--  SCENARIOS  -->
+  <section class="view" id="view-scenarios" role="tabpanel">
+    <div class="layout layout--single">
+      <div class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">Scenarios</h2>
+          <button class="btn btn--primary" id="new-scenario-btn">New scenario</button>
+        </div>
+        <p class="hint">Built-in scenarios are read-only demo content. Your own scenarios are private to your account.</p>
+        <div class="cards" id="scenario-cards"></div>
+      </div>
+
+      <div class="panel" id="scenario-editor" hidden>
+        <h2 class="panel__title" id="editor-title">New scenario</h2>
+        <form id="scenario-form" class="form-grid">
+          <label class="field">
+            <span class="field__label">Name</span>
+            <input class="input" name="name" required maxlength="160" placeholder="Straight - my test" />
+          </label>
+          <label class="field">
+            <span class="field__label">Description</span>
+            <input class="input" name="description" maxlength="2000" placeholder="What is this scenario testing?" />
+          </label>
+          <label class="field">
+            <span class="field__label">Track shape</span>
+            <select class="input" name="shape" id="shape-select">
+              <option value="straight">Straight</option>
+              <option value="curve">Gentle curve</option>
+              <option value="scurve">S-curve</option>
+              <option value="chicane">Chicane</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field__label">Weather</span>
+            <select class="input" name="weather">
+              <option value="dry">Dry</option>
+              <option value="wet">Wet</option>
+              <option value="fog">Fog</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field__label">Ego start speed (m/s)</span>
+            <input class="input" name="ego_speed" type="number" min="0" max="60" step="0.5" value="12" />
+          </label>
+          <label class="field">
+            <span class="field__label">Duration (s)</span>
+            <input class="input" name="duration" type="number" min="1" max="120" step="1" value="20" />
+          </label>
+          <label class="field">
+            <span class="field__label">Lead vehicle speed (m/s, 0 = none)</span>
+            <input class="input" name="lead_speed" type="number" min="0" max="40" step="0.5" value="0" />
+          </label>
+          <label class="field">
+            <span class="field__label">Static obstacle at (m, 0 = none)</span>
+            <input class="input" name="obstacle_s" type="number" min="0" max="2000" step="5" value="0" />
+          </label>
+          <div class="form-actions">
+            <button class="btn btn--primary" type="submit">Save scenario</button>
+            <button class="btn btn--ghost" type="button" id="cancel-scenario-btn">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!--  TRAIN  -->
+  <section class="view" id="view-train" role="tabpanel">
+    <div class="layout">
+      <aside class="panel panel--controls">
+        <h2 class="panel__title">Train a Q-learning agent</h2>
+        <p class="hint">
+          Tabular Q-learning over 140 discretised states and 9 actions. Training runs
+          in-process and is seeded, so the reward curve is reproducible.
+        </p>
+
+        <label class="field">
+          <span class="field__label">Agent name</span>
+          <input class="input" id="train-name" value="safar-agent" maxlength="120" />
+        </label>
+        <label class="field">
+          <span class="field__label">Track</span>
+          <select class="input" id="train-scenario"></select>
+        </label>
+        <label class="field">
+          <span class="field__label">Episodes</span>
+          <input class="input" id="train-episodes" type="number" min="10" max="2000" value="300" />
+        </label>
+        <label class="field">
+          <span class="field__label">Steps per episode</span>
+          <input class="input" id="train-steps" type="number" min="20" max="600" value="120" />
+        </label>
+        <label class="field">
+          <span class="field__label">Learning rate ()</span>
+          <input class="input" id="train-alpha" type="number" min="0.01" max="1" step="0.01" value="0.22" />
+        </label>
+        <label class="field">
+          <span class="field__label">Discount ()</span>
+          <input class="input" id="train-gamma" type="number" min="0.01" max="1" step="0.01" value="0.92" />
+        </label>
+        <button class="btn btn--primary btn--block" id="train-btn">Train</button>
+        <p class="hint hint--tight">300 episodes takes a few seconds.</p>
+      </aside>
+
+      <div class="stage">
+        <div class="chart-card">
+          <div class="chart-card__head">
+            <h3>Reward per episode</h3>
+            <span class="hint hint--tight" id="train-summary">no training run yet</span>
+          </div>
+          <canvas id="reward-canvas" width="1200" height="300" aria-label="Reward curve"></canvas>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-card__head">
+            <h3>Learned policy - steering by state</h3>
+            <span class="hint hint--tight">rows: lateral error bucket - columns: speed bucket</span>
+          </div>
+          <div class="heatmap" id="policy-heatmap"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--  HISTORY  -->
+  <section class="view" id="view-history" role="tabpanel">
+    <div class="layout layout--single">
+      <div class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">Run history</h2>
+          <button class="btn btn--ghost" id="refresh-history-btn">Refresh</button>
+        </div>
+        <p class="hint">Runs are append-only. Nothing here is ever mutated after it is written.</p>
+        <div class="table-wrap">
+          <table class="table" id="history-table">
+            <thead>
+              <tr>
+                <th>When</th><th>Scenario</th><th>Policy</th>
+                <th class="num">Score</th><th class="num">Min TTC</th><th class="num">Outcome</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--  ABOUT  -->
+  <section class="view" id="view-about" role="tabpanel">
+    <div class="layout layout--single">
+      <div class="panel prose">
+        <h2 class="panel__title">About Safar</h2>
+        <p>
+          Safar runs a real kinematic simulation of a vehicle on a track and then reports
+          the safety envelope of what happened. Every number on the dashboard is traceable
+          to the timestep where it peaked - not a summary of a summary.
+        </p>
+
+        <h3>What it actually models</h3>
+        <ul>
+          <li><strong>Kinematic bicycle model</strong> - position, heading, speed and steering, integrated with the midpoint rule.</li>
+          <li><strong>Pure-pursuit path following</strong> with a speed-dependent lookahead, so it does not cut corners at speed.</li>
+          <li><strong>IDM car-following</strong> for NPC traffic - free flow and congestion from the same three lines of maths.</li>
+          <li><strong>Weather as friction</strong> - wet tarmac costs 38% of braking authority, and the stopping distances change accordingly.</li>
+          <li><strong>Tabular Q-learning</strong> - 140 states, 9 actions, trained in-process and fully readable as a table.</li>
+        </ul>
+
+        <h3>What it is not</h3>
+        <ul>
+          <li>Not a photorealistic renderer. It is a 2D top-down canvas view.</li>
+          <li>Not a vehicle dynamics package. No tyre slip, no suspension, no load transfer.</li>
+          <li>Not a safety certification. The composite score is a documented heuristic.</li>
+          <li>Not a trained AV stack. The agent is deliberately small so its policy stays legible.</li>
+        </ul>
+
+        <h3>API</h3>
+        <p>
+          Interactive docs are at <a href="/api/docs">/api/docs</a>. The demo account is
+          <code>demo@safar.pk</code> - sign in from the top right to run simulations.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- auth modal -->
+<div class="modal" id="auth-modal" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <h2 id="auth-title">Sign in</h2>
+    <p class="hint">Use the demo account, or create your own.</p>
+    <form id="auth-form">
+      <label class="field">
+        <span class="field__label">Email</span>
+        <input class="input" name="email" type="email" required value="demo@safar.pk" />
+      </label>
+      <label class="field">
+        <span class="field__label">Password</span>
+        <input class="input" name="password" type="password" required value="safar-demo-2026" />
+      </label>
+      <div class="form-actions">
+        <button class="btn btn--primary" type="submit" id="auth-submit">Sign in</button>
+        <button class="btn btn--ghost" type="button" id="auth-toggle">Create account</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
